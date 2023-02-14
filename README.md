@@ -1,1 +1,3 @@
-# gnn_identity_effects
+# Identity Effects in Graph Neural Networks
+
+## Experiment code
