@@ -1,0 +1,15 @@
+{
+"min_num_layers": 3,
+"max_num_layers": 3,
+"epochs": 3000,
+"num_reps": 1,
+"lr":0.0025,
+"n_max" :15,
+"hd":64,
+"gnn_type": "gin",
+"take_rand": 1,
+"gap": 0,
+"distributed_bits": 10,
+"early": 0
+}
+
