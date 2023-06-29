@@ -4,6 +4,26 @@ from torch_geometric.nn import MLP, global_add_pool, global_max_pool, global_mea
 from torch_geometric.nn import GraphConv, GINConv, WLConv
 import torch.nn.functional as F
 
+class MLP_WORDS(torch.nn.Module):
+    def __init__(self, input, hidden, out):
+        super().__init__()
+        self.half_input = int(input/2)
+        self.linear1 = Linear(self.half_input, hidden)
+        self.linear2 = Linear(self.half_input, hidden)
+        self.linear_out = Linear(hidden,out)
+        self.gelu = torch.nn.GELU()
+        self.eps = 1e-3
+
+
+    def forward(self,x):
+        x1 = self.gelu(self.linear1(x[:,:self.half_input]))
+        x2 = self.gelu(self.linear1(x[:,self.half_input:]))
+        #diff = (torch.sqrt((x1-x2)**2 + self.eps))
+        diff = (x1-x2)**2
+        return torch.sigmoid(self.linear_out(diff)), [diff, x1, x2]
+
+        
+
 
 
 class WL(torch.nn.Module):
@@ -22,37 +42,144 @@ class WL(torch.nn.Module):
         return self.conv.reset_parameters()
 
 
-class GCONV(torch.nn.Module):
+class GCONVDIFF(torch.nn.Module):
     """GCONV"""
-    def __init__(self, in_channels, hidden_channels, out_channels, nc, global_pool = False):
+    def __init__(self, in_channels, hidden_channels, out_channels, nc):
         super().__init__()
         self.hidden_channels = hidden_channels
-        self.global_pool = global_pool
         self.convs = torch.nn.ModuleList()
         for _ in range(nc):
             self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
             in_channels = hidden_channels
-        mlp_input = hidden_channels if global_pool else 2*hidden_channels
-        self.mlp = MLP([mlp_input, 4*hidden_channels, out_channels])
+        self.linear = Linear(hidden_channels, out_channels)
 
     def forward(self, x, edge_index, batch):
         for conv in self.convs:
             x = torch.relu(conv(x, edge_index))
-
-        if self.global_pool:
-            #x = torch.reshape(x, (-1, 2*self.hidden_channels))
-            x = global_add_pool(x, batch)
-        else:
-            a,_,c = torch.unique(edge_index[0], return_inverse= True, return_counts = True)
-            x = x[a[c>2]]
-            batch = batch[a[c>2]]
-            x = torch.reshape(x, (-1, 2*self.hidden_channels))
-        #import pdb; pdb.set_trace()
+        a,_,c = torch.unique(edge_index[0], return_inverse= True, return_counts = True)
+        x = x[a[c>2]]
+        batch = batch[a[c>2]]
+        x = torch.reshape(x, (-1, 2*self.hidden_channels))
+        x1 = x[:,:self.hidden_channels]
+        x2 = x[:, self.hidden_channels:]
+        out = torch.abs((x1-x2))
+        return torch.sigmoid(self.linear(out)), [out, x1, x2]
         
-        #
-        #x = global_mean_pool(x, batch)
-        #x = global_max_pool(x, batch)
-        return torch.sigmoid(self.mlp(x))
+class GCONVSTACK(torch.nn.Module):
+    """GCONV"""
+    def __init__(self, in_channels, hidden_channels, out_channels, nc, readout = 'mlp', split = True):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.readout = readout
+        self.convs = torch.nn.ModuleList()
+        for _ in range(nc):
+            self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
+            in_channels = hidden_channels
+        self.mlp = MLP([2*hidden_channels, 3*hidden_channels, out_channels])
+        self.linear = Linear(2*hidden_channels, out_channels)
+        self.split = split
+        self.split_linear1 = Linear(hidden_channels, out_channels)
+        self.split_linear2 = Linear(hidden_channels, out_channels)
+        self.last_linear = Linear(2,1)
+
+    def forward(self, x, edge_index, batch):
+        for conv in self.convs:
+            x = torch.relu(conv(x, edge_index))
+        a,_,c = torch.unique(edge_index[0], return_inverse= True, return_counts = True)
+        x = x[a[c>2]]
+        batch = batch[a[c>2]]
+        x = torch.reshape(x, (-1, 2*self.hidden_channels))
+        x1 = x[:,:self.hidden_channels]
+        x2 = x[:, self.hidden_channels:]
+        out = torch.cat([torch.relu(self.split_linear1(x1)),torch.relu(self.split_linear2(x2))],1)
+        if self.split:          
+            return torch.sigmoid(self.last_linear(out)), [x, x1, x2]
+        elif self.readout == 'mlp':
+            return torch.sigmoid(self.mlp(x)), [x, x1, x2]
+        else:
+            return torch.sigmoid(self.linear(x)), [x, x1, x2] 
+
+
+
+
+
+class GCONVSTACK_WORDS(torch.nn.Module):
+    """GCONV"""
+    def __init__(self, in_channels, hidden_channels, out_channels, nc, readout = 'mlp', split = False):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.readout = readout
+        self.convs = torch.nn.ModuleList()
+        for _ in range(nc):
+            self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
+            in_channels = hidden_channels
+        self.mlp = MLP([2*hidden_channels, 3*hidden_channels, out_channels])
+        self.linear = Linear(2*hidden_channels, out_channels)
+        self.split = split
+        self.split_linear1 = Linear(hidden_channels, out_channels)
+        self.split_linear2 = Linear(hidden_channels, out_channels)
+        self.last_linear = Linear(2,1)
+        
+
+    def forward(self, x, edge_index, batch):
+        for conv in self.convs:
+            x = torch.relu(conv(x, edge_index))
+        x = torch.reshape(x, (-1, 2*self.hidden_channels))
+        x1 = x[:,:self.hidden_channels]
+        x2 = x[:, self.hidden_channels:]
+        if self.readout == 'mlp':
+            return torch.sigmoid(self.mlp(x)), [x, x1, x2]
+        else:
+            return torch.sigmoid(self.linear(x)), [x, x1, x2] 
+
+
+
+class GCONVDIFF_WORDS(torch.nn.Module):
+    """GCONV"""
+    def __init__(self, in_channels, hidden_channels, out_channels, nc):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.convs = torch.nn.ModuleList()
+        for _ in range(nc):
+            self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
+            in_channels = hidden_channels
+        self.linear = Linear(hidden_channels, out_channels)
+        self.gelu = torch.nn.GELU()
+        self.eps = 1e-3
+
+    def forward(self, x, edge_index, batch):
+        for conv in self.convs:
+            x = self.gelu(conv(x, edge_index))
+        x = torch.reshape(x, (-1, 2*self.hidden_channels))
+        x1 = x[:,:self.hidden_channels]
+        x2 = x[:, self.hidden_channels:]
+        out = (torch.sqrt((x1-x2)**2 + self.eps))
+        #out = (x1-x2)**2
+        return torch.sigmoid(self.linear(out)), [out, x1, x2]
+        
+class GCONV(torch.nn.Module):
+    """GCONV"""
+    def __init__(self, in_channels, hidden_channels, out_channels, nc, readout = 'mlp'):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.readout = readout
+        self.convs = torch.nn.ModuleList()
+        for _ in range(nc):
+            self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
+            in_channels = hidden_channels
+        self.linear = Linear(hidden_channels, out_channels)
+        self.mlp = MLP([hidden_channels, 2*hidden_channels, out_channels])
+        #self.gelu = torch.nn.GELU()
+
+    def forward(self, x, edge_index, batch):
+        for conv in self.convs:
+            x = torch.relu(conv(x, edge_index))       
+        x = global_add_pool(x, batch)
+        if self.readout == 'mlp':
+            return torch.sigmoid(self.mlp(x)), x
+        else:
+            return torch.sigmoid(self.linear(x)), x 
+
 
 class GIN_old(torch.nn.Module):
     """GIN(old version)"""

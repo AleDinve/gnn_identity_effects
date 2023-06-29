@@ -1,0 +1,14 @@
+{
+"min_num_layers": 11,
+"max_num_layers":11,
+"epochs": 5000,
+"num_reps": 25,
+"lr":0.001,
+"n_max" : 8,
+"exp_type": "gap3_22",
+"k": 7,
+"hd":100,
+"gap": 3,
+"early":0
+}
+
