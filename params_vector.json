@@ -1,7 +1,0 @@
-{
-    "lr": 0.0025,
-    "epochs": 200000,
-    "distributed_bits": 3,
-    "reps": 1,
-    "hd": 30
-}

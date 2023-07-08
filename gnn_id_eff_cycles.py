@@ -13,28 +13,8 @@ import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def main_dicyclic(gnn_type, num_layers, num_reps, epochs, hd, lr, n_max, take_random, path, early):
-    raw_data = []
-    histogram_data = []
-    if gnn_type == 'gconv':
-        for num_l in num_layers:
-            print(f'Number of layers: {num_l}')
-            for it in range(num_reps):          
-                print(str(it+1)+'-th iteration')
-                #seed manual setting
-                torch_geometric.seed.seed_everything(it*100)
-                data_dict = dataset_generator(dataset='dicyclic', n_max = n_max, take_random=take_random)
-                model, raw_data = training(gnn_type, data_dict, 'dicyclic', hd, lr, num_l, epochs, it, raw_data, early = early)
-                histogram_data = histogram_dicyclic_saver(histogram_data, data_dict, n_max,  model, 'dicyclic', it, num_l, device)
-    
-    data = pd.DataFrame.from_records(raw_data)
-    data.to_csv(path+'dicyclic_data')
-    histogram_pd = pd.DataFrame.from_records(histogram_data)
-    histogram_pd.to_csv(path+'dicyclic_histogram')
-    return data, histogram_pd
 
-
-def orthogonality(json_path):
+def main_dicyclic(json_path):
     #loading parameters from json
     with open(json_path) as f:
         params = json.load(f)
@@ -94,7 +74,7 @@ def orthogonality(json_path):
 
 if __name__ == '__main__':
     #dicyclic_comparison('params_dicyclic.json')
-    orthogonality('params_dicyclic.json')
+    main_dicyclic('params_dicyclic.json')
 
 
 
