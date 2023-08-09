@@ -11,13 +11,13 @@ class MLP_WORDS(torch.nn.Module):
         self.linear1 = Linear(self.half_input, hidden)
         self.linear2 = Linear(self.half_input, hidden)
         self.linear_out = Linear(hidden,out)
-        self.gelu = torch.nn.GELU()
+        self.relu = torch.nn.RELU()
         self.eps = 1e-3
 
 
     def forward(self,x):
-        x1 = self.gelu(self.linear1(x[:,:self.half_input]))
-        x2 = self.gelu(self.linear1(x[:,self.half_input:]))
+        x1 = self.relu(self.linear1(x[:,:self.half_input]))
+        x2 = self.relu(self.linear1(x[:,self.half_input:]))
         #diff = (torch.sqrt((x1-x2)**2 + self.eps))
         diff = (x1-x2)**2
         return torch.sigmoid(self.linear_out(diff)), [diff, x1, x2]
@@ -144,12 +144,11 @@ class GCONVDIFF_WORDS(torch.nn.Module):
             self.convs.append(GraphConv(in_channels, hidden_channels, aggr='add', bias=True))
             in_channels = hidden_channels
         self.linear = Linear(hidden_channels, out_channels)
-        self.gelu = torch.nn.GELU()
         self.eps = 1e-3
 
     def forward(self, x, edge_index, batch):
         for conv in self.convs:
-            x = self.gelu(conv(x, edge_index))
+            x = torch.relu(conv(x, edge_index))
         x = torch.reshape(x, (-1, 2*self.hidden_channels))
         x1 = x[:,:self.hidden_channels]
         x2 = x[:, self.hidden_channels:]
